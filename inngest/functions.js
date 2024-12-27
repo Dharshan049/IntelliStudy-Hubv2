@@ -1,10 +1,8 @@
 import { db } from "@/configs/db";
 import { inngest } from "./client";
 import { CHAPTER_NOTES_TABLE, STUDY_MATERIAL_TABLE, STUDY_TYPE_CONTENT_TABLE, USER_TABLE } from "@/configs/schema";
-import { use } from "react";
-import { useUser } from "@clerk/nextjs";
 import { eq } from "drizzle-orm";
-import { generateNotes, GenerateQuizAiModel, GenerateStudyTypeContentAiModel } from "@/configs/AiModel";
+import { generateNotes, GenerateQuizAiModel, GenerateStudyTypeContentAiModel, GenerateQaAiModel } from "@/configs/AiModel";
 
 export const helloWorld = inngest.createFunction(
   { id: "hello-world" },
@@ -32,13 +30,12 @@ export const CreateNewUser = inngest.createFunction(
             }).returning({id: USER_TABLE.id})
             return userResp;
         }
-            return result;
-        })
+    });
 
-        return 'Success'
-    }
-
-)
+    console.log(result);
+    return "Success";
+  }
+);
 
 export const GenerateNotes = inngest.createFunction(
     { id: "generate-course" },
@@ -55,7 +52,7 @@ export const GenerateNotes = inngest.createFunction(
 
             await Promise.all(
                 Chapters.map(async (chapter, index) => {
-                    const PROMPT = `Generate exam material detail content for each chapter , Make sure to includes all topic point in the content, make sure to give content in HTML format (Do not Add HTMLK , Head, Body, title tag), The chapters: ${JSON.stringify(chapter)}`;
+                    const PROMPT = `Generate exam material detail content for each chapter, Make sure to include all topic points in the content, make sure to give content in HTML format (Do not Add HTML, Head, Body, title tag), The chapters: ${JSON.stringify(chapter)}`;
                     const result = await generateNotes.sendMessage(PROMPT);
                     const aiResp = await result.response.text();
 
@@ -83,36 +80,38 @@ export const GenerateNotes = inngest.createFunction(
     }
 );
 
-// Used to generate flashcards, quiz and Q/A
 export const GenerateStudyTypeContent = inngest.createFunction(
-    { id: "Generate Study Type Content" },
-    { event: "studyType.content" },
-
-
-    async ({ event, step }) => {
-        const {studyType,prompt,courseId,recordId} = event.data;
-
-            const AiResult = await step.run("Generate Flashcards", async () => {
-            const result = 
-            studyType=='Flashcard' ? 
-            await GenerateStudyTypeContentAiModel.sendMessage(prompt):
-            await GenerateQuizAiModel.sendMessage(prompt);
-            const AiResult = JSON.parse(result.response.text());
-            return AiResult;
-            });
-
-        // Save the result to DB
-
-        const DbResult = await step.run('Saving result to DB', async()=>{
-            const result = await db.update(STUDY_TYPE_CONTENT_TABLE)
-            .set({
-                content: AiResult,
-                status:'Ready'
-            }).where(eq(STUDY_TYPE_CONTENT_TABLE.id,recordId))
-
-            return 'Data Saved'
+  { id: "Generate Study Type Content" },
+  { event: "studyType.content" },
+  async ({ event, step }) => {
+    const { studyType, prompt, courseId, recordId } = event.data;
+    const AIResult = await step.run(
+      "Generating Flashcard using AI",
+      async () => {
+        const result =
+          studyType === "Flashcard"
+            ? await GenerateStudyTypeContentAiModel.sendMessage(prompt)
+            : studyType === "Quiz"
+            ? await GenerateQuizAiModel.sendMessage(prompt)
+            : studyType === "Question/Answer"
+            ? await GenerateQaAiModel.sendMessage(prompt)
+            : null;
+        if (!result) {
+          throw new Error("Invalid study type");
+        }
+        const AIResult = JSON.parse(result.response.text());
+        return AIResult;
+      }
+    );
+    const DbResult = await step.run("Save Result to DB", async () => {
+      const result = await db
+        .update(STUDY_TYPE_CONTENT_TABLE)
+        .set({
+          content: AIResult,
+          status: "Ready",
         })
-
-    }
-
-)
+        .where(eq(STUDY_TYPE_CONTENT_TABLE.id, recordId));
+      return "Data Inserted";
+    });
+  }
+);

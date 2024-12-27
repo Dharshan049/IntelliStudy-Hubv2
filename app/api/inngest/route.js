@@ -12,7 +12,7 @@ export const {GET, POST, PUT } = serve({
         helloWorld,
         CreateNewUser,
         GenerateNotes,
-        GenerateStudyTypeContent
+        GenerateStudyTypeContent,
     ],
 });
 
